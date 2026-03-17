@@ -873,8 +873,9 @@ def render_recommendations(recommendations):
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Current Monthly SIP", f"Rs {totals['current_total_sip']:,.0f}")
+    _chg = totals['change_amount']
     c2.metric("Recommended Monthly SIP", f"Rs {totals['recommended_total_sip']:,.0f}",
-              delta=f"Rs {totals['change_amount']:+,.0f}")
+              delta=f"{'+' if _chg >= 0 else '-'}Rs {abs(_chg):,.0f}")
     c3.metric("Portfolio Change", f"{totals['change_pct']:+.1%}")
     c4.metric("Holdings Analyzed", str(len(recommendations)))
 
