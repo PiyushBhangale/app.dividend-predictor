@@ -35,69 +35,134 @@ def build_feature_vector(td: TickerData) -> Dict[str, float]:
 
     Returns a dict with every key from FEATURE_NAMES.
     Any feature that cannot be computed is NaN — impute_features() handles it.
+
+    Each yf.info-dependent feature has a statement-based fallback so the
+    pipeline works correctly when yf.info is blocked (e.g. on Streamlit Cloud).
     """
     info = td.info
     ticker = td.ticker
 
     features: Dict[str, float] = {}
 
-    # 1. ROE
-    features["roe"] = _safe_info(info, "returnOnEquity", ticker, "roe")
+    # Precompute shared values used in multiple features
+    current_price = _current_price(td)
+    shares = _shares(td)
 
-    # 2. Debt / Equity
-    features["debt_equity"] = _safe_info(info, "debtToEquity", ticker, "debt_equity")
-    if not math.isnan(features["debt_equity"]):
-        features["debt_equity"] = features["debt_equity"] / 100.0  # yf returns as %
+    # 1. ROE — fallback: Net Income / Stockholders Equity
+    roe = _safe_info(info, "returnOnEquity", ticker, "roe")
+    if math.isnan(roe):
+        ni = _stmt_value(td.financials, "Net Income")
+        eq = _stmt_value(td.balance_sheet, "Stockholders Equity")
+        if not math.isnan(ni) and not math.isnan(eq) and eq != 0:
+            roe = ni / eq
+    features["roe"] = roe
 
-    # 3. Current dividend yield
-    features["dividend_yield"] = _safe_info(info, "dividendYield", ticker, "dividend_yield")
+    # 2. Debt / Equity — fallback: Total Debt / Stockholders Equity
+    de = _safe_info(info, "debtToEquity", ticker, "debt_equity")
+    if not math.isnan(de):
+        de = de / 100.0  # yf returns as percentage
+    else:
+        debt = _stmt_value(td.balance_sheet, "Total Debt")
+        eq   = _stmt_value(td.balance_sheet, "Stockholders Equity")
+        if not math.isnan(debt) and not math.isnan(eq) and eq != 0:
+            de = debt / eq
+    features["debt_equity"] = de
 
-    # 4 & 5. Dividend CAGR (3Y and 5Y)
+    # 3. Dividend yield — fallback: annual DPS / current price
+    dy = _safe_info(info, "dividendYield", ticker, "dividend_yield")
+    if math.isnan(dy) and current_price > 0 and len(td.dividends) > 0:
+        try:
+            divs = td.dividends.copy()
+            divs.index = pd.to_datetime(divs.index)
+            annual_dps = float(divs.resample("A").sum().iloc[-1])
+            dy = annual_dps / current_price
+        except Exception:
+            pass
+    features["dividend_yield"] = dy
+
+    # 4 & 5. Dividend CAGR (from dividends series — always reliable)
     div_series = _annual_dividend_totals(td.dividends)
     features["div_cagr_3y"] = compute_cagr(div_series, years=3)
     features["div_cagr_5y"] = compute_cagr(div_series, years=5)
 
-    # 6. Payout ratio
-    features["payout_ratio"] = _safe_info(info, "payoutRatio", ticker, "payout_ratio")
+    # 6. Payout ratio — fallback: Dividends Paid (cashflow) / Net Income
+    pr = _safe_info(info, "payoutRatio", ticker, "payout_ratio")
+    if math.isnan(pr):
+        div_paid = abs(_stmt_value(td.cashflow, "Common Stock Dividend"))
+        ni       = _stmt_value(td.financials, "Net Income")
+        if math.isnan(div_paid):
+            # alternate cashflow row name
+            div_paid = abs(_stmt_value(td.cashflow, "Cash Dividends Paid"))
+        if not math.isnan(div_paid) and not math.isnan(ni) and ni > 0:
+            pr = div_paid / ni
+    features["payout_ratio"] = pr
 
-    # 7. EPS growth 3Y
-    features["eps_growth_3y"] = _income_stmt_growth(td.financials, "Net Income", years=3)
+    # 7 & 8. Growth from income statement (always from financials)
+    features["eps_growth_3y"]     = _income_stmt_growth(td.financials, "Net Income",     years=3)
+    features["revenue_growth_3y"] = _income_stmt_growth(td.financials, "Total Revenue",  years=3)
 
-    # 8. Revenue growth 3Y
-    features["revenue_growth_3y"] = _income_stmt_growth(td.financials, "Total Revenue", years=3)
-
-    # 9. OCF margin
+    # 9. OCF margin (from cashflow + financials)
     features["ocf_margin"] = _ocf_margin(td)
 
-    # 10. FCF yield
-    features["fcf_yield"] = _fcf_yield(td)
+    # 10. FCF yield — uses fast_info/price as market cap fallback
+    features["fcf_yield"] = _fcf_yield(td, current_price, shares)
 
-    # 11. Log market cap
+    # 11. Log market cap — fast_info fallback, then price × shares
     mc = _safe_info(info, "marketCap", ticker, "log_market_cap")
-    features["log_market_cap"] = math.log(mc) if not math.isnan(mc) and mc > 0 else NAN
+    if math.isnan(mc) or mc <= 0:
+        mc = td.fast_info.get("market_cap") or 0
+    if (mc is None or mc <= 0) and current_price > 0 and shares > 0:
+        mc = current_price * shares
+    features["log_market_cap"] = math.log(float(mc)) if mc and mc > 0 else NAN
 
-    # 12. P/E ratio
-    features["pe_ratio"] = _safe_info(info, "trailingPE", ticker, "pe_ratio")
+    # 12. P/E ratio — fallback: price / (Net Income / shares)
+    pe = _safe_info(info, "trailingPE", ticker, "pe_ratio")
+    if math.isnan(pe) and current_price > 0 and shares > 0:
+        ni = _stmt_value(td.financials, "Net Income")
+        if not math.isnan(ni) and ni > 0:
+            eps = ni / shares
+            if eps > 0:
+                pe = current_price / eps
+    features["pe_ratio"] = pe
 
-    # 13. P/B ratio
-    features["pb_ratio"] = _safe_info(info, "priceToBook", ticker, "pb_ratio")
+    # 13. P/B ratio — fallback: price / (Stockholders Equity / shares)
+    pb = _safe_info(info, "priceToBook", ticker, "pb_ratio")
+    if math.isnan(pb) and current_price > 0 and shares > 0:
+        eq = _stmt_value(td.balance_sheet, "Stockholders Equity")
+        if not math.isnan(eq) and eq > 0:
+            bvps = eq / shares
+            if bvps > 0:
+                pb = current_price / bvps
+    features["pb_ratio"] = pb
 
-    # 14. Current ratio
-    features["current_ratio"] = _safe_info(info, "currentRatio", ticker, "current_ratio")
+    # 14. Current ratio — fallback: Current Assets / Current Liabilities
+    cr = _safe_info(info, "currentRatio", ticker, "current_ratio")
+    if math.isnan(cr):
+        ca = _stmt_value(td.balance_sheet, "Current Assets")
+        cl = _stmt_value(td.balance_sheet, "Current Liabilities")
+        if not math.isnan(ca) and not math.isnan(cl) and cl != 0:
+            cr = ca / cl
+    features["current_ratio"] = cr
 
-    # 15. Interest coverage
+    # 15. Interest coverage (from financials)
     features["interest_coverage"] = _interest_coverage(td)
 
-    # 16. Net profit margin
-    features["net_profit_margin"] = _safe_info(info, "profitMargins", ticker, "net_profit_margin")
+    # 16. Net profit margin — fallback: Net Income / Total Revenue
+    npm = _safe_info(info, "profitMargins", ticker, "net_profit_margin")
+    if math.isnan(npm):
+        ni  = _stmt_value(td.financials, "Net Income")
+        rev = _stmt_value(td.financials, "Total Revenue")
+        if not math.isnan(ni) and not math.isnan(rev) and rev != 0:
+            npm = ni / rev
+    features["net_profit_margin"] = npm
 
-    # 17. Asset turnover
+    # 17. Asset turnover (from financials + balance sheet)
     features["asset_turnover"] = _asset_turnover(td)
 
-    # 18. Sector encoded
+    # 18. Sector encoded (info only — "Unknown" if info blocked)
     features["sector_encoded"] = float(encode_sector(info))
 
-    # 19. Consecutive dividend years
+    # 19. Consecutive dividend years (from dividends series — always reliable)
     features["consecutive_div_years"] = float(_consecutive_div_years(td.dividends))
 
     return features
@@ -247,17 +312,19 @@ def _ocf_margin(td: TickerData) -> float:
         return NAN
 
 
-def _fcf_yield(td: TickerData) -> float:
-    """Free Cash Flow / Market Cap."""
-    mc = td.info.get("marketCap")
-    if mc is None or mc == 0:
-        return NAN
-    if td.cashflow.empty:
+def _fcf_yield(td: TickerData, current_price: float = 0.0, shares: float = 0.0) -> float:
+    """Free Cash Flow / Market Cap.
+
+    Market cap priority: yf.info → fast_info → price × shares.
+    """
+    mc = td.info.get("marketCap") or td.fast_info.get("market_cap") or 0
+    if (not mc or mc <= 0) and current_price > 0 and shares > 0:
+        mc = current_price * shares
+    if not mc or mc <= 0 or td.cashflow.empty:
         return NAN
     try:
         fcf_row = _find_row(td.cashflow, "Free Cash Flow")
         if fcf_row is None:
-            # Fallback: OCF - Capex
             ocf_row = _find_row(td.cashflow, "Operating Cash Flow")
             cap_row = _find_row(td.cashflow, "Capital Expenditure")
             if ocf_row is None or cap_row is None:
@@ -337,3 +404,37 @@ def _find_row(df: pd.DataFrame, key: str) -> Optional[pd.Series]:
     if not matches:
         return None
     return df.loc[matches[0]]
+
+
+def _stmt_value(df: pd.DataFrame, key: str) -> float:
+    """Get the most recent scalar value from a financial statement row. Returns NaN if not found."""
+    row = _find_row(df, key)
+    if row is None:
+        return NAN
+    try:
+        val = pd.to_numeric(row, errors="coerce").iloc[0]
+        return float(val) if not pd.isna(val) else NAN
+    except Exception:
+        return NAN
+
+
+def _current_price(td: TickerData) -> float:
+    """Latest closing price from history. Falls back to fast_info.last_price."""
+    try:
+        if not td.history.empty:
+            col = "Close" if "Close" in td.history.columns else td.history.columns[0]
+            p = float(td.history[col].dropna().iloc[-1])
+            if p > 0:
+                return p
+    except Exception:
+        pass
+    return float(td.fast_info.get("last_price") or 0)
+
+
+def _shares(td: TickerData) -> float:
+    """Shares outstanding: fast_info → balance sheet implied shares."""
+    shares = td.fast_info.get("shares") or td.info.get("sharesOutstanding")
+    if shares and float(shares) > 0:
+        return float(shares)
+    # Balance sheet fallback: equity / book_value_per_share is circular, so skip
+    return 0.0

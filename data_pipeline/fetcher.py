@@ -33,6 +33,7 @@ class TickerData:
     """
     ticker: str
     info: Dict = field(default_factory=dict)
+    fast_info: Dict = field(default_factory=dict)   # lightweight fallback when info is blocked
     history: pd.DataFrame = field(default_factory=pd.DataFrame)
     dividends: pd.Series = field(default_factory=pd.Series)
     financials: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -77,6 +78,7 @@ class StockFetcher:
         td = TickerData(ticker=ticker)
 
         td.info = self._safe_fetch_info(ticker, td)
+        td.fast_info = self._safe_fetch_fast_info(ticker, td)
         td.history, td.dividends = self._safe_fetch_history(ticker, td)
         td.financials, td.balance_sheet, td.cashflow = self._safe_fetch_financials(
             ticker, td
@@ -92,6 +94,22 @@ class StockFetcher:
     # ------------------------------------------------------------------
     # Safe fetch helpers — each returns a typed empty value on failure
     # ------------------------------------------------------------------
+
+    def _safe_fetch_fast_info(self, ticker: str, td: TickerData) -> Dict:
+        """Fetch lightweight fast_info — more reliable on cloud than full .info."""
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            return {
+                "market_cap":   getattr(fi, "market_cap",         None),
+                "shares":       getattr(fi, "shares",             None),
+                "last_price":   getattr(fi, "last_price",         None),
+                "currency":     getattr(fi, "currency",           None),
+                "exchange":     getattr(fi, "exchange",           None),
+            }
+        except Exception as e:
+            log_fetch_error(ticker, "fast_info", e)
+            td.fetch_errors.append("fast_info")
+            return {}
 
     def _safe_fetch_info(self, ticker: str, td: TickerData) -> Dict:
         try:
