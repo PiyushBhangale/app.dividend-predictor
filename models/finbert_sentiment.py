@@ -16,13 +16,16 @@ Design decisions:
 from __future__ import annotations
 
 import os
-# Block TensorFlow before transformers loads — TF crashes with AVX SIGABRT on this machine
+# Block TensorFlow before transformers loads — TF crashes with AVX SIGABRT on some machines
 os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
 os.environ.setdefault("USE_TF", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-# Load from local cache only — avoids hanging on HuggingFace update checks
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+# Offline mode: only activate when explicitly set (e.g. local dev after first download).
+# On Streamlit Cloud or fresh environments the model downloads from HuggingFace on first use.
+# To enable locally after downloading: set TRANSFORMERS_OFFLINE=1 in your shell.
+if os.environ.get("TRANSFORMERS_OFFLINE") != "1":
+    os.environ.pop("TRANSFORMERS_OFFLINE", None)
+    os.environ.pop("HF_DATASETS_OFFLINE", None)
 
 from typing import Dict, List, Optional
 
