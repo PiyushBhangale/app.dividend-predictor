@@ -255,7 +255,14 @@ def render_sidebar() -> Dict[str, float]:
     locked = st.session_state.get("analyzing", False)
 
     st.sidebar.markdown(
-        "<h1 style='color:#6366F1;font-size:1.05rem;font-weight:800;margin-bottom:0;'>DividendAI<span style='color:#F59E0B;'>.</span></h1>",
+        "<h1 style='color:#6366F1;font-size:1.05rem;font-weight:800;margin-bottom:4px;'>DividendAI<span style='color:#F59E0B;'>.</span></h1>"
+        "<p style='color:#64748B;font-size:0.72rem;line-height:1.55;margin:0 0 8px 0;'>"
+        "Analyses your NSE dividend portfolio using 4 AI models — "
+        "Random Forest, Pattern Memory, FinBERT news sentiment, and a base rate prior — "
+        "then recommends whether to <span style='color:#059669;font-weight:600;'>increase</span>, "
+        "<span style='color:#B45309;font-weight:600;'>hold</span>, or "
+        "<span style='color:#DC2626;font-weight:600;'>reduce</span> each monthly SIP."
+        "</p>",
         unsafe_allow_html=True,
     )
     st.sidebar.divider()
