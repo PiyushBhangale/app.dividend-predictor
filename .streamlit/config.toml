@@ -1,0 +1,15 @@
+[theme]
+base = "light"
+
+# Soft off-white — easy on the eyes, not blinding white
+backgroundColor          = "#F5F7FA"
+secondaryBackgroundColor = "#FFFFFF"
+
+# Indigo accent — professional, trustworthy
+primaryColor             = "#6366F1"
+
+# Slate text — readable without harsh contrast
+textColor                = "#1E293B"
+
+[server]
+headless = true
