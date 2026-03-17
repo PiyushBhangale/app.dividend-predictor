@@ -255,14 +255,11 @@ def render_sidebar() -> Dict[str, float]:
     locked = st.session_state.get("analyzing", False)
 
     st.sidebar.markdown(
-        "<h1 style='color:#6366F1;font-size:1.05rem;font-weight:800;margin-bottom:4px;'>DividendAI<span style='color:#F59E0B;'>.</span></h1>"
-        "<p style='color:#64748B;font-size:0.72rem;line-height:1.55;margin:0 0 8px 0;'>"
-        "Analyses your NSE dividend portfolio using 4 AI models — "
-        "Random Forest, Pattern Memory, FinBERT news sentiment, and a base rate prior — "
-        "then recommends whether to <span style='color:#059669;font-weight:600;'>increase</span>, "
-        "<span style='color:#B45309;font-weight:600;'>hold</span>, or "
-        "<span style='color:#DC2626;font-weight:600;'>reduce</span> each monthly SIP."
-        "</p>",
+        "<div style='margin-bottom:8px;'>"
+        "<h1 style='color:#6366F1;font-size:1.05rem;font-weight:800;margin:0 0 1px 0;'>DividendAI<span style='color:#F59E0B;'>.</span></h1>"
+        "<p style='color:#94A3B8;font-size:0.75rem;font-style:italic;margin:0;'>"
+        "Because your dividends deserve a PhD.</p>"
+        "</div>",
         unsafe_allow_html=True,
     )
     st.sidebar.divider()
@@ -323,8 +320,13 @@ def render_hero():
                 -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
                 DividendAI<span style="-webkit-text-fill-color:#F59E0B;">.</span>
             </h1>
-            <p style="margin:0;color:#475569;font-size:0.85rem;letter-spacing:0.05em;">
-                SMART SIP ADVISOR &nbsp;·&nbsp; POWERED BY 4 AI MODELS &nbsp;·&nbsp; NSE INDIA
+            <p style="margin:0 0 0.6rem 0;color:#94A3B8;font-size:0.85rem;line-height:1.7;max-width:580px;">
+                Upload your NSE dividend portfolio and get AI-driven recommendations
+                on whether to increase, hold, or reduce each monthly SIP —
+                backed by 10 years of live market data.
+            </p>
+            <p style="margin:0;color:#94A3B8;font-size:0.68rem;letter-spacing:0.08em;">
+                SMART SIP ADVISOR &nbsp;·&nbsp; 4 AI MODELS &nbsp;·&nbsp; NSE INDIA
             </p>
         </div>
         <div style="display:flex;gap:2.5rem;margin-top:1.4rem;flex-wrap:wrap;">
